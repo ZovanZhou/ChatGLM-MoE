@@ -154,26 +154,38 @@ class PrefixExperts(torch.nn.Module):
         self.n_experts = config.prefix_n_experts
         self.cur_expert = config.prefix_cur_expert
         self.pre_seq_h_dim = config.num_layers * config.hidden_size * 2
-
-        self.gate = torch.nn.Sequential(
-            torch.nn.Linear(self.pre_seq_h_dim, self.n_experts),
-            torch.nn.Softmax(dim=-1),
+        self.expert_weights = (
+            config.expert_weights if self.cur_expert <= 0 else [1.0, 1.0]
         )
+
+        # self.gate = torch.nn.Sequential(
+        #     torch.nn.Linear(self.pre_seq_h_dim, self.n_experts),
+        #     torch.nn.Softmax(dim=-1),
+        # )
         self.experts = torch.nn.Embedding(
             config.pre_seq_len, self.pre_seq_h_dim * self.n_experts,
         )
 
-    def forward(self, prefix: torch.Tensor, past_key_values: torch.Tensor):
-        exp_key_values = self.experts(prefix).view(
+    def forward(self, prefix: torch.Tensor):
+        exp_values = self.experts(prefix).view(
             -1, self.pre_seq_len, self.pre_seq_h_dim, self.n_experts
         )
-        g = self.gate(past_key_values)
+        cur_expert_values = torch.zeros_like(exp_values[:, :, :, 0])
         if self.cur_expert > 0:
-            mask = torch.zeros_like(g)
-            mask[:, :, self.cur_expert - 1] = 1.0
-            g = g * mask
-        g = torch.unsqueeze(g, dim=-1)
-        past_key_values = torch.squeeze(torch.matmul(exp_key_values, g), dim=-1)
+            cur_expert_values += exp_values[:, :, :, self.cur_expert - 1]
+        else:
+            for i, w in enumerate(self.expert_weights):
+                cur_expert_values += w * exp_values[:, :, :, i]
+        past_key_values = cur_expert_values
+        # g = self.gate(past_key_values)
+        # if self.cur_expert > 0:
+        #     mask = torch.zeros_like(g)
+        #     mask[:, :, self.cur_expert - 1] = 1.0
+        #     g = g * mask
+        # g = torch.unsqueeze(g, dim=-1)
+        # g[:, :, 0] = 0.5
+        # g[:, :, 1] = 0.5
+        # past_key_values = torch.squeeze(torch.matmul(exp_key_values, g), dim=-1)
         return past_key_values
 
 
@@ -188,28 +200,28 @@ class PrefixEncoder(torch.nn.Module):
         super().__init__()
         self.prefix_projection = config.prefix_projection
         self.prefix_experts = PrefixExperts(config)
-        if self.prefix_projection:
-            # Use a two-layer MLP to encode the prefix
-            self.embedding = torch.nn.Embedding(config.pre_seq_len, config.hidden_size)
-            self.trans = torch.nn.Sequential(
-                torch.nn.Linear(config.hidden_size, config.hidden_size),
-                torch.nn.Tanh(),
-                torch.nn.Linear(
-                    config.hidden_size, config.num_layers * config.hidden_size * 2
-                ),
-            )
-        else:
-            self.embedding = torch.nn.Embedding(
-                config.pre_seq_len, config.num_layers * config.hidden_size * 2
-            )
+        # if self.prefix_projection:
+        #     # Use a two-layer MLP to encode the prefix
+        #     self.embedding = torch.nn.Embedding(config.pre_seq_len, config.hidden_size)
+        #     self.trans = torch.nn.Sequential(
+        #         torch.nn.Linear(config.hidden_size, config.hidden_size),
+        #         torch.nn.Tanh(),
+        #         torch.nn.Linear(
+        #             config.hidden_size, config.num_layers * config.hidden_size * 2
+        #         ),
+        #     )
+        # else:
+        #     self.embedding = torch.nn.Embedding(
+        #         config.pre_seq_len, config.num_layers * config.hidden_size * 2
+        #     )
 
     def forward(self, prefix: torch.Tensor):
-        if self.prefix_projection:
-            prefix_tokens = self.embedding(prefix)
-            past_key_values = self.trans(prefix_tokens)
-        else:
-            past_key_values = self.embedding(prefix)
-        past_key_values = self.prefix_experts(prefix, past_key_values)
+        # if self.prefix_projection:
+        #     prefix_tokens = self.embedding(prefix)
+        #     past_key_values = self.trans(prefix_tokens)
+        # else:
+        #     past_key_values = self.embedding(prefix)
+        past_key_values = self.prefix_experts(prefix)
         return past_key_values
 
 

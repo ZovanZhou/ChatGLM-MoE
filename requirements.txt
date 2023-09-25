@@ -6,3 +6,4 @@ gradio
 mdtex2html
 sentencepiece
 accelerate
+pydantic==1.10.9

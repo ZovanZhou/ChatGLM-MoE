@@ -355,7 +355,15 @@ def main():
             labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
         decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
 
-        score_dict = {"rouge-1": [], "rouge-2": [], "rouge-l": [], "bleu-4": []}
+        score_dict = {
+            "rouge-1": [],
+            "rouge-2": [],
+            "rouge-l": [],
+            "bleu-1": [],
+            "bleu-2": [],
+            "bleu-3": [],
+            "bleu-4": [],
+        }
         for pred, label in zip(decoded_preds, decoded_labels):
             hypothesis = list(jieba.cut(pred))
             reference = list(jieba.cut(label))
@@ -365,12 +373,20 @@ def main():
 
             for k, v in result.items():
                 score_dict[k].append(round(v["f"] * 100, 4))
-            bleu_score = sentence_bleu(
-                [list(label)],
-                list(pred),
-                smoothing_function=SmoothingFunction().method3,
-            )
-            score_dict["bleu-4"].append(round(bleu_score * 100, 4))
+            bleu_weights = [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.5, 0.5, 0.0, 0.0],
+                [1.0 / 3] * 3 + [0.0],
+                [0.25] * 4,
+            ]
+            for ibw, bw in enumerate(bleu_weights):
+                bleu_score = sentence_bleu(
+                    [list(label)],
+                    list(pred),
+                    weights=bw,
+                    smoothing_function=SmoothingFunction().method3,
+                )
+                score_dict[f"bleu-{ibw+1}"].append(round(bleu_score * 100, 4))
 
         for k, v in score_dict.items():
             score_dict[k] = float(np.mean(v))
